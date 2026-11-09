@@ -12,11 +12,16 @@ Policies (--run <policy>:<drones>):
   hover   take off and hold the takeoff height, or --height <cm> (e.g. 200 = 2 m)
   formation  swarm_formation.py on those drones (its own process, video + tags); with it
           the run lasts until the formation ends unless --duration is given
+  defend  swarm_defend.py on those drones (its own process, video + tags + the attackers'
+          UDP feed): our defenders guard the breach face; options via --defend-args,
+          e.g. "--feed-port 9200 --feed-frame map --headless"
 
 Umbrella: give --run once per group, e.g. drones 1,2 spin while 3,4,5 split 3 ft / 6 ft:
   python swarm_policies.py --run spin:1,2 --run levels:3,4,5            # dry-run
   python swarm_policies.py --run spin:1,2 --run levels:3,4,5 --fly --duration 30
   python swarm_policies.py --run spin:6,7,9 --run formation:4,5 --fly    # defend + attack
+  python swarm_policies.py --run defend:6,7,9 --run formation:4,5 --fly \\
+      --defend-args "--feed-port 9200"
 One --run flies just that policy. A drone may be in only one group.
 
 Telemetry: every policy can publish live data and read what the others publish
@@ -44,7 +49,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "core"))
 from paths import DONGLES_PATH  # noqa: E402  (config/ lives in core)
-from policies import (POLICIES, FormationPolicy, HoverPolicy, SpinPolicy, TelemetryBus,  # noqa: E402
+from policies import (POLICIES, DefendPolicy, FormationPolicy, HoverPolicy, SpinPolicy, TelemetryBus,  # noqa: E402
                       TelemetryHub, Umbrella)
 from policies.base import HIGH_CM  # noqa: E402
 from policies.formation import PROMPT as FORMATION_PROMPT  # noqa: E402
@@ -334,7 +339,7 @@ class External:
             print(f"[{self.name}] WARNING: still running after {timeout} s - check its drones!", flush=True)
 
 
-def parse_runs(runs, yaw_rc, formation_args, hover_cm=None):
+def parse_runs(runs, yaw_rc, formation_args, hover_cm=None, defend_args=""):
     groups, externals = {}, []
     for r in runs:
         name, _, nums = r.partition(":")
@@ -343,6 +348,9 @@ def parse_runs(runs, yaw_rc, formation_args, hover_cm=None):
         nums = [int(x) for x in nums.split(",") if x.strip()]
         if name == "formation":
             externals.append((FormationPolicy(formation_args), nums))
+            continue
+        if name == "defend":
+            externals.append((DefendPolicy(defend_args), nums))
             continue
         if name == "spin":
             p = SpinPolicy(yaw_rc)
@@ -399,12 +407,14 @@ def main():
                     help=f"hover height above the floor, cm ({MIN_HOVER_CM}-{MAX_HOVER_CM}; default: takeoff height)")
     ap.add_argument("--yaw", type=int, default=SPIN_YAW_RC, help="spin rc yaw, -100..100")
     ap.add_argument("--formation-args", default="", help='extra swarm_formation.py args, e.g. "--hold 10 --fast"')
+    ap.add_argument("--defend-args", default="",
+                    help='swarm_defend.py args, e.g. "--feed-port 9200 --feed-frame map --headless"')
     ap.add_argument("--fly", action="store_true", help="actually fly (default dry-run)")
     args = ap.parse_args()
 
     if args.height is not None and not MIN_HOVER_CM <= args.height <= MAX_HOVER_CM:
         sys.exit(f"--height {args.height} cm: use {MIN_HOVER_CM}-{MAX_HOVER_CM}")
-    umbrella, ext_specs = parse_runs(args.run, args.yaw, args.formation_args, args.height)
+    umbrella, ext_specs = parse_runs(args.run, args.yaw, args.formation_args, args.height, args.defend_args)
     ext_nums = {n for _, nums in ext_specs for n in nums}
     groups = {p: nums for p, nums in umbrella.groups.items() if not getattr(p, "external", False)}
     bus = TelemetryBus()
@@ -456,7 +466,7 @@ def main():
             for d in drones:
                 d.airborne, d.takeoff_t = True, now          # run the loop, send nothing
             args.duration = min(args.duration or 15.0, 15.0)
-        print(">>> RUNNING " + (f"{args.duration:.0f} s" if args.duration else "until formation ends")
+        print(">>> RUNNING " + (f"{args.duration:.0f} s" if args.duration else "until the external groups end")
               + " (Ctrl+C = land all)", flush=True)
 
         end, last_print = time.time() + (args.duration or float("inf")), 0.0
@@ -464,7 +474,7 @@ def main():
             t_loop = time.time()
             active = [d for d in drones if d.land_thread is None and not d.landed]
             if externals and not any(e.alive() for e in externals):
-                print("Formation ended -> landing all", flush=True)
+                print("External group ended -> landing all", flush=True)
                 return
             if not active and not externals:
                 print("All drones landed.", flush=True)

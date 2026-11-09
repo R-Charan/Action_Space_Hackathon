@@ -59,7 +59,7 @@ print(f"[clip] viewport: {viewport}", flush=True)
 
 # let the renderer settle before the first capture
 for _ in range(30):
-    simulation_app.update()
+    env.sim.render()  # a bare app update steps physics without the controller forces
 
 
 def capture(index: int) -> str:
@@ -68,7 +68,7 @@ def capture(index: int) -> str:
     # ticking the app is what actually flushes the capture to disk
     capture_viewport_to_file(viewport, path)
     for _ in range(args.ticks_per_capture):
-        simulation_app.update()
+        env.sim.render()  # a bare app update steps physics without the controller forces
     return path
 
 
@@ -83,6 +83,9 @@ while captured < args.frames:
     for agent in env.cfg.possible_agents:
         rel = obs[agent][:, 9 : 9 + 3 * num_attackers].reshape(env.num_envs, num_attackers, 3)
         distance = torch.linalg.norm(rel, dim=-1)
+        # downed attackers are zeroed in the observation; skip them via the alive flags
+        alive = obs[agent][:, -num_attackers:] > 0.5
+        distance = torch.where(alive, distance, torch.full_like(distance, float("inf")))
         target = rel[torch.arange(env.num_envs, device=env.device), distance.argmin(dim=-1)]
         direction = target / torch.clamp(torch.linalg.norm(target, dim=-1, keepdim=True), min=1e-6)
         actions[agent] = torch.cat([direction, torch.zeros(env.num_envs, 1, device=env.device)], dim=-1)
@@ -97,7 +100,7 @@ while captured < args.frames:
         if captured == 1:
             # fail fast rather than simulating for minutes and writing nothing
             for _ in range(60):
-                simulation_app.update()
+                env.sim.render()  # a bare app update steps physics without the controller forces
             if not os.path.exists(path):
                 print("[clip] first capture produced no file -- aborting", flush=True)
                 env.close()
@@ -107,7 +110,7 @@ while captured < args.frames:
 
 # let the trailing captures flush
 for _ in range(120):
-    simulation_app.update()
+    env.sim.render()  # a bare app update steps physics without the controller forces
 
 frames = sorted(f for f in os.listdir(args.frame_dir) if f.endswith(".png"))
 print(f"[clip] wrote {len(frames)} frames", flush=True)

@@ -1,0 +1,32 @@
+--- a/drone_deployment_infra/defender/run_defender.py	2026-10-24 13:24:32.570715971 -0400
++++ b/drone_deployment_infra/defender/run_defender.py	2026-10-24 13:24:32.587121514 -0400
+@@ -264,7 +264,9 @@
+                     help="frame of the feed's positions: map = tag-10 frame (x right, y up, z out of the wall), "
+                          "world = this script's frame (X out of the wall, Y right, Z up from the floor)")
+     ap.add_argument("--map", default=str(MAP_PATH), help="room tag map (map.yaml)")
+-    ap.add_argument("--policy", default=None, help="trained shared-policy checkpoint (.pt); omit for the scripted planner")
++    ap.add_argument("--policy", default=None,
++                    help="trained shared-policy checkpoint (.pt), or 'classical' for the bus defender "
++                         "(core/classical_defender.py; defends the breach face: use --site-radius 0); omit for the scripted planner")
+     args = ap.parse_args()
+ 
+     defenders = args.defenders.split(",")
+@@ -272,7 +274,17 @@
+     site = torch.tensor([[float(v) for v in args.site.split(",")]])
+     cfg = M.MacroCfg(site_radius=args.site_radius, max_lin_speed=args.max_speed, solver="hungarian")
+     state = M.MacroState(1, len(defenders), len(attackers), "cpu")
+-    policy = SharedPolicy.load(args.policy) if args.policy else None
++    if args.policy == "classical":
++        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # drone_deployment_infra
++        from core.classical_defender import load_classical
++
++        cp = load_classical()
++        # the bus plans with the speed the drones really reach under the rc cap
++        pcfg = cp.BusPilotCfg(max_speed=min(1.5, args.max_speed * args.rc_cap / 100.0))
++        policy = cp.ClassicalPolicy.for_room(site=site[0], num_defenders=len(defenders), num_attackers=len(attackers),
++                                             action_speed=args.max_speed, pilot_cfg=pcfg)
++    else:
++        policy = SharedPolicy.load(args.policy) if args.policy else None
+     applied = torch.zeros(len(defenders), 4)  # last flown command, action units (a policy input)
+     frames = Frames(args.shared_frame, Path(args.map))
+     gui = Gui(args.gui)

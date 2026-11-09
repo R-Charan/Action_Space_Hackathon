@@ -212,6 +212,12 @@ python scripts/evaluate.py --task AS-Defend-v0 --checkpoint logs/skrl/tello_defe
 A policy that cannot beat `--baseline chase` (greedy pursuit of the nearest attacker) is
 not yet worth flying.
 
+**The 3-vs-2 breach-face defense** (the competition round: 3 defenders, 2 attackers, a cuboid
+face, mutual kill on contact) has its own tasks (`AS-Defend-Face-*`, `AS-Defend-Face-Room-*`
+for the real room, `AS-Attack-Face-*` for PPO attackers), a classical defender, evaluators,
+recorders and the real-drone file `drone_deployment_infra/swarm_ops/swarm_defend.py`: see
+[`simulation_infra/DEFENSE.md`](simulation_infra/DEFENSE.md).
+
 ### Baselines to beat (AS-Defend-v0 defaults, 2 defenders vs 2 attackers)
 
 | Policy | Interceptions | Breaches | Time to intercept | Episode return* |

@@ -16,7 +16,7 @@ from isaaclab.assets import RigidObject
 from isaaclab.envs import DirectMARLEnv
 from isaaclab.markers import CUBOID_MARKER_CFG, VisualizationMarkers
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
-from isaaclab.utils.math import sample_uniform
+from isaaclab.utils.math import quat_apply_inverse, sample_uniform
 
 from action_space_kit.assets import TELLO_CFG, TELLO_MASS
 from action_space_kit.control import TelloVelocityController
@@ -111,6 +111,9 @@ class TelloDefendEnv(TerminalObservationMixin, DirectMARLEnv):
                 projected_gravity_b=drone.data.projected_gravity_b,
                 dt=self.physics_dt,
             )
+            # the controller's force is world-frame; external wrenches are applied in the body
+            # frame, so a yawed drone would otherwise be pushed the wrong way and run away
+            force = quat_apply_inverse(drone.data.root_quat_w, force.squeeze(1)).unsqueeze(1)
             drone.set_external_force_and_torque(forces=force, torques=torque, body_ids=[0])
 
         attacker_actions = self._scripted_attacker_actions()
@@ -122,6 +125,7 @@ class TelloDefendEnv(TerminalObservationMixin, DirectMARLEnv):
                 projected_gravity_b=drone.data.projected_gravity_b,
                 dt=self.physics_dt,
             )
+            force = quat_apply_inverse(drone.data.root_quat_w, force.squeeze(1)).unsqueeze(1)
             drone.set_external_force_and_torque(forces=force, torques=torque, body_ids=[0])
 
     def _scripted_attacker_actions(self) -> list[torch.Tensor]:

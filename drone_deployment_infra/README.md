@@ -33,4 +33,11 @@ package is editable-installed from `cal_and_map/`:
 
 Swarm flights (several drones, attack + defense): `swarm_ops/README.md`.
 
+**Defense (our 3v2 defender):** `swarm_ops/swarm_defend.py` is the single file handed to the
+organizers: the sim's classical bus defender baked in, with `swarm_formation.py`'s link, video and tag
+localization; it runs under `swarm_policies.py --run defend:<drones>`. How it was built and scored:
+`../simulation_infra/DEFENSE.md`. For the teammate's PPO runner (`defender/run_defender.py`), the same
+defender behind its 59 -> 4 interface: `core/classical_defender.py` (self-test: run it) and
+`defender_classical_policy.patch`.
+
 Top-level command references: `calibrate_map.md` (calibrate + map) and `FLYING.md` (fly).

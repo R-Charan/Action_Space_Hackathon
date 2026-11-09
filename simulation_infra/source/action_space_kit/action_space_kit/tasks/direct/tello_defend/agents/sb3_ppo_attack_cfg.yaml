@@ -1,0 +1,33 @@
+# SB3 PPO for AS-Attack-Face-v0: ONE central policy flies both attackers against the bus defender.
+#
+# central: true -> Sb3CentralVecEnv: the policy sees both attackers' blocks (2 x 37 = 74) and
+# outputs both velocity commands (2 x 3 = 6); its reward is the team reward.
+# A policy step is 1/15 s; episodes are up to 30 s (450 steps), so gamma 0.995 looks ~13 s ahead.
+# The observation carries every velocity, so 2 stacked frames are enough to sense accelerations.
+# A rollout holds n_steps * num_envs = 128 * 1024 = 131072 transitions.
+seed: 42
+central: true
+
+n_timesteps: !!float 2e8
+policy: 'MlpPolicy'
+n_steps: 128
+n_minibatches: 4
+gae_lambda: 0.95
+gamma: 0.995
+n_epochs: 5
+ent_coef: 0.005
+learning_rate: !!float 3e-4
+clip_range: 0.2
+policy_kwargs:
+  activation_fn: 'nn.ELU'
+  net_arch: [256, 256]
+  log_std_init: -0.5
+  squash_output: False
+vf_coef: 1.0
+max_grad_norm: 1.0
+target_kl: 0.02
+normalize_input: True
+normalize_value: False
+clip_obs: 10.0
+frame_stack: 2
+device: "cuda:0"

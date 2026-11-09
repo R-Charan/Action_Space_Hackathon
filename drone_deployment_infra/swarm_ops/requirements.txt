@@ -4,3 +4,4 @@ av
 pyyaml
 pytest
 pupil-apriltags
+torch

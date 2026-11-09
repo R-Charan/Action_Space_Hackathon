@@ -56,6 +56,9 @@ def chase_actions(raw, obs):
     for agent in raw.cfg.possible_agents:
         rel = obs[agent][:, 9 : 9 + 3 * num_attackers].reshape(raw.num_envs, num_attackers, 3)
         distance = torch.linalg.norm(rel, dim=-1)
+        # downed attackers are zeroed in the observation; skip them via the alive flags
+        alive = obs[agent][:, -num_attackers:] > 0.5
+        distance = torch.where(alive, distance, torch.full_like(distance, float("inf")))
         target = rel[torch.arange(raw.num_envs, device=raw.device), distance.argmin(dim=-1)]
         direction = target / torch.clamp(torch.linalg.norm(target, dim=-1, keepdim=True), min=1e-6)
         actions[agent] = torch.cat([direction, torch.zeros(raw.num_envs, 1, device=raw.device)], dim=-1)

@@ -20,6 +20,11 @@
 > (e.g. `simulation_infra/setup.sh ~/isaac`). The **real-world drone** code is in
 > `drone_deployment_infra/` (calibration, mapping, connect, policies, recordings) —
 > see `drone_deployment_infra/README.md`. This guide covers the simulation side.
+>
+> **Defense (3 vs 2, breach face):** tasks `AS-Defend-Face-*` / `-Room-*` / `AS-Attack-Face-*`,
+> the classical bus defender, `scripts/evaluate_face.py` / `record_face.py`, and the real-drone
+> defender `drone_deployment_infra/swarm_ops/swarm_defend.py`: see `simulation_infra/DEFENSE.md`.
+> Check the real-drone file without Isaac (needs torch): `python -u swarm_defend.py --selftest` (pass: `SELFTEST PASSED`).
 
 Isaac Lab kit for the Action Space hackathon. The main demo is **`AS-Tello-Approach-v0`**:
 four DJI Tello drones fly to a base, each passes through its own gate on a 3 m keep-out

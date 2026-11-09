@@ -115,12 +115,14 @@ Policies live one per file in `policies/` (add one there and register it in `pol
 | `levels` | lower-numbered half at 3 ft (91 cm), the rest at 6 ft (183 cm), hover |
 | `hover` | hold the takeoff height, or `--height <cm>` (40-250) |
 | `formation` | `swarm_formation.py` on those drones, as its own process |
+| `defend` | `swarm_defend.py` on those drones, as its own process: our 3v2 defenders (the sim's classical bus), own video + tag fixes, attackers from the UDP feed; chases from the first tick (`simulation_infra/DEFENSE.md`) |
 
 ```
 python swarm_policies.py --run spin:6,7,9 --run formation:4,5           # dry-run
 python swarm_policies.py --run spin:6,7,9 --run formation:4,5 --fly     # defense spins, attack forms up
 python swarm_policies.py --run hover:4,5,6,7,9 --height 200 --fly --duration 60   # photo hover at 2 m
 python swarm_policies.py --run levels:4,5,6,7,9 --fly
+python swarm_policies.py --run defend:6,7,9 --run formation:4,5 --fly --defend-args "--feed-port 9200"
 ```
 
 **Options**
@@ -132,6 +134,7 @@ python swarm_policies.py --run levels:4,5,6,7,9 --fly
 | `--height 200` | `hover` height above the floor, cm |
 | `--yaw -60` | `spin` speed and direction (-100..100) |
 | `--formation-args "--fast --hold 15"` | passed to `swarm_formation.py` |
+| `--defend-args "--feed-port 9200 ..."` | passed to `swarm_defend.py`: `--feed-port` (9200), `--feed-frame map\|world`, `--attackers A1,A2` (feed names; default: as first seen), face geometry `--face-x 4.2 --face-width 3 --face-height 2 --face-bottom 0.5`, `--max-speed` (0.89 m/s), `--wall-gap` (0.2 m), `--alert-radius`/`--engage-radius`/`--strike-radius` (50 m: chase everywhere), `--start-height` (130 cm), `--lost-land` (6 s), `--headless` |
 
 With `formation`, its camera windows and keys (`q`, `SPACE`) still work, but its
 `--headless` terminal keys don't (its stdin is the umbrella): use `Ctrl+C` in the
@@ -155,6 +158,56 @@ when run alone). Published automatically every tick:
 | `formation/drone<N>` | `swarm_formation.py` | `state`, `p` (m, map frame; `None` = no fix yet), `psi_deg`, `fix_age`, `height_cm`, `rc` |
 
 Steer on telemetry only while it is fresh (`max_age`): a stalled publisher must not steer a drone.
+
+With `defend`: it needs no drone_gui (it owns its drones' link, video and tags, like
+`formation`). Each defender climbs to `--start-height`, turns until it sees a mapped tag,
+then the planner (the sim's classical bus, baked in by `build_defend.py`) takes over and
+chases: every attacker in the feed gets one defender, which flies straight at it (head-on
+intercept) from the first tick, wherever it is in the room, out to 0.2 m from the tag-10 wall
+(`--wall-gap`); the spare drone stays in front of the face and takes over when a chaser is
+lost. (Zones are still there for tuning: `--alert-radius`, `--engage-radius`,
+`--strike-radius`, all 50 m = the whole room by default.) A defender without a fresh
+fix (< 0.4 s) only turns back to the tags; with none for `--lost-land` (6 s) it lands and is
+out, and so is one found on the floor. Attackers not yet in the feed are left out (defenders
+hold posts 0.8 m in front of the face). Top speed `--max-speed` 0.89 m/s. Once a second it prints, per drone, its
+state, role, position, fix age and rc, plus each attacker's feed state and zone: read these
+first when a defender doesn't engage. Log: `logs/defend_<time>.jsonl` (every tick: each
+defender's state, role, pose, fix age, rc and target; the attackers' feed state and zones).
+
+Every change is also printed as one `[event t=...]` line (t = s since FLY), and the run ends
+with a `SUMMARY` block (per drone: last state and role, how it ended, top speed; per attacker:
+down / alive / never seen):
+| Event | Meaning |
+|---|---|
+| `[feed] FIRST PACKET from ...: b'...'` | the raw first datagram: check the organizers' format here |
+| `[feed] BAD PACKET #n: ...` | not JSON / no `attackers` / no `p` (first 5 printed) |
+| `[feed] attacker 'X' -> A0`, `... IGNORED` | feed names mapped to slots; extras beyond `--num-attackers` |
+| `A0: feed LIVE / STALE / RESUMED` | no update for 1 s = stale: its position is held |
+| `WARNING: no attacker packets on UDP :9200 ...` | 3 s into defending and nothing heard: defenders only hold posts |
+| `drone6: takeoff ok`, `CLIMB -> SEARCH (...)`, `no trusted tag in view -> turning` | startup |
+| `drone6: LOST TAGS` / `tags back after 1.2 s` / `LOST for 6.0 s ... LANDING, OUT` | localization |
+| `planner ON`, `drone6: role spare -> STRIKE A0: A0 at (...), 2.3 m away` | who chases whom |
+| `A1: DOWN at (...), nearest defender drone9 0.30 m` | a capture (or the feed's alive=false) |
+
+**Attacker feed** (`swarm_defend.py --feed-port`, default 9200): JSON datagrams
+`{"attackers": {"TELLO-3": {"p": [x, y, z], "alive": true, "age": 0.05}, ...}}` (or a list of
+`{"name", "p", "alive"}`), `p` in the map frame (`--feed-frame world`: X out of the tag-10 wall,
+Y along it, Z up). In the 2026-10-24 host run the organizers' wrapper sent this format from
+formation's telemetry, but formation's `p` is in its **`--target` tag's frame** (that run: tag 6),
+not tag 10's, so positions were off by metres (attacker 1.5 m under the floor). To fix next: read
+`formation/drone<N>` telemetry directly and convert from the target tag's frame (or have formation
+publish in tag 10's frame).
+
+Check without drones:
+```
+python swarm_defend.py --selftest                       # baked planner == sim, frames, rc, feed, roles; pass: SELFTEST PASSED
+python swarm_defend.py --bench 200 --att-speed 1.0 1.5  # closed loop on the rc model; --loiter 10 = attackers hover first
+python swarm_defend.py --only 6,7,9 --mock --fly --headless --duration 30   # simulated drones + scripted feed; type FLY
+python swarm_policies.py --run defend:6,7,9 --fly --defend-args "--mock --headless"   # the same through the umbrella
+python swarm_defend.py --only 6,7,9 --fake-feed         # real drones, dry run (no takeoff), scripted attackers
+```
+After changing `simulation_infra`'s `bus_pilot.py`, `face_geometry.py`, `zone_pilot.py` or
+`tags/sensing.py`: `python build_defend.py`, then `--selftest`.
 
 ---
 
